@@ -2,10 +2,10 @@
 
 namespace Illuminate\Foundation\Testing\Constraints;
 
-use PHPUnit_Framework_Constraint;
 use Illuminate\Database\Connection;
+use PHPUnit\Framework\Constraint\Constraint;
 
-class SoftDeletedInDatabase extends PHPUnit_Framework_Constraint
+class SoftDeletedInDatabase extends Constraint
 {
     /**
      * Number of records that will be shown in the console in case of failure.
@@ -29,17 +29,27 @@ class SoftDeletedInDatabase extends PHPUnit_Framework_Constraint
     protected $data;
 
     /**
+     * The name of the column that indicates soft deletion has occurred.
+     *
+     * @var string
+     */
+    protected $deletedAtColumn;
+
+    /**
      * Create a new constraint instance.
      *
      * @param  \Illuminate\Database\Connection  $database
      * @param  array  $data
+     * @param  string  $deletedAtColumn
      * @return void
      */
-    public function __construct(Connection $database, array $data)
+    public function __construct(Connection $database, array $data, string $deletedAtColumn)
     {
         $this->data = $data;
 
         $this->database = $database;
+
+        $this->deletedAtColumn = $deletedAtColumn;
     }
 
     /**
@@ -48,10 +58,12 @@ class SoftDeletedInDatabase extends PHPUnit_Framework_Constraint
      * @param  string  $table
      * @return bool
      */
-    public function matches($table)
+    public function matches($table): bool
     {
         return $this->database->table($table)
-                ->where($this->data)->whereNotNull('deleted_at')->count() > 0;
+                ->where($this->data)
+                ->whereNotNull($this->deletedAtColumn)
+                ->count() > 0;
     }
 
     /**
@@ -60,7 +72,7 @@ class SoftDeletedInDatabase extends PHPUnit_Framework_Constraint
      * @param  string  $table
      * @return string
      */
-    public function failureDescription($table)
+    public function failureDescription($table): string
     {
         return sprintf(
             "any soft deleted row in the table [%s] matches the attributes %s.\n\n%s",
@@ -96,7 +108,7 @@ class SoftDeletedInDatabase extends PHPUnit_Framework_Constraint
      *
      * @return string
      */
-    public function toString()
+    public function toString(): string
     {
         return json_encode($this->data);
     }

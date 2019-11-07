@@ -6,8 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class Task extends Model
 {
-    /* the attributes that are mass assignable: @var array */
     protected $fillable = [
-        'name'
+      'task_type_id',
+      'name'
     ];
+
+    public function taskType() {
+      return $this->belongsTo(TaskType::class);
+    }
 }

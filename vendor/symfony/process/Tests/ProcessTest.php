@@ -28,9 +28,8 @@ class ProcessTest extends TestCase
     private static $phpBin;
     private static $process;
     private static $sigchild;
-    private static $notEnhancedSigchild = false;
 
-    public static function setUpBeforeClass()
+    public static function setUpBeforeClass(): void
     {
         $phpBin = new PhpExecutableFinder();
         self::$phpBin = getenv('SYMFONY_PROCESS_PHP_TEST_BINARY') ?: ('phpdbg' === \PHP_SAPI ? 'php' : $phpBin->find());
@@ -40,7 +39,7 @@ class ProcessTest extends TestCase
         self::$sigchild = false !== strpos(ob_get_clean(), '--enable-sigchild');
     }
 
-    protected function tearDown()
+    protected function tearDown(): void
     {
         if (self::$process) {
             self::$process->stop(0);
@@ -48,21 +47,19 @@ class ProcessTest extends TestCase
         }
     }
 
-    /**
-     * @group legacy
-     * @expectedDeprecation The provided cwd does not exist. Command is currently ran against getcwd(). This behavior is deprecated since Symfony 3.4 and will be removed in 4.0.
-     */
     public function testInvalidCwd()
     {
-        if ('\\' === \DIRECTORY_SEPARATOR) {
-            $this->markTestSkipped('False-positive on Windows/appveyor.');
+        $this->expectException('Symfony\Component\Process\Exception\RuntimeException');
+        $this->expectExceptionMessageRegExp('/The provided cwd ".*" does not exist\./');
+        try {
+            // Check that it works fine if the CWD exists
+            $cmd = new Process(['echo', 'test'], __DIR__);
+            $cmd->run();
+        } catch (\Exception $e) {
+            $this->fail($e);
         }
 
-        // Check that it works fine if the CWD exists
-        $cmd = new Process('echo test', __DIR__);
-        $cmd->run();
-
-        $cmd = new Process('echo test', __DIR__.'/notfound/');
+        $cmd = new Process(['echo', 'test'], __DIR__.'/notfound/');
         $cmd->run();
     }
 
@@ -114,15 +111,48 @@ class ProcessTest extends TestCase
         $p = $this->getProcess([self::$phpBin, __DIR__.'/NonStopableProcess.php', 30]);
         $p->start();
 
-        while (false === strpos($p->getOutput(), 'received')) {
+        while ($p->isRunning() && false === strpos($p->getOutput(), 'received')) {
             usleep(1000);
         }
+
+        if (!$p->isRunning()) {
+            throw new \LogicException('Process is not running: '.$p->getErrorOutput());
+        }
+
         $start = microtime(true);
         $p->stop(0.1);
 
         $p->wait();
 
         $this->assertLessThan(15, microtime(true) - $start);
+    }
+
+    public function testWaitUntilSpecificOutput()
+    {
+        if ('\\' === \DIRECTORY_SEPARATOR) {
+            $this->markTestIncomplete('This test is too transient on Windows, help wanted to improve it');
+        }
+
+        $p = $this->getProcess([self::$phpBin, __DIR__.'/KillableProcessWithOutput.php']);
+        $p->start();
+
+        $start = microtime(true);
+
+        $completeOutput = '';
+        $result = $p->waitUntil(function ($type, $output) use (&$completeOutput) {
+            return false !== strpos($completeOutput .= $output, 'One more');
+        });
+        $this->assertTrue($result);
+        $this->assertLessThan(20, microtime(true) - $start);
+        $this->assertStringStartsWith("First iteration output\nSecond iteration output\nOne more", $completeOutput);
+        $p->stop();
+    }
+
+    public function testWaitUntilCanReturnFalse()
+    {
+        $p = $this->getProcess('echo foo');
+        $p->start();
+        $this->assertFalse($p->waitUntil(function () { return false; }));
     }
 
     public function testAllOutputIsActuallyReadOnTermination()
@@ -432,7 +462,6 @@ class ProcessTest extends TestCase
         if ('\\' === \DIRECTORY_SEPARATOR) {
             $this->markTestSkipped('Windows does not support POSIX exit code');
         }
-        $this->skipIfNotEnhancedSigchild();
 
         // such command run in bash return an exitcode 127
         $process = $this->getProcess('nonexistingcommandIhopeneversomeonewouldnameacommandlikethis');
@@ -461,7 +490,6 @@ class ProcessTest extends TestCase
         if ('\\' === \DIRECTORY_SEPARATOR) {
             $this->markTestSkipped('Windows does have /dev/tty support');
         }
-        $this->skipIfNotEnhancedSigchild();
 
         $process = $this->getProcess('echo "foo" >> /dev/null');
         $process->setTty(true);
@@ -485,8 +513,6 @@ class ProcessTest extends TestCase
 
     public function testExitCodeTextIsNullWhenExitCodeIsNull()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('');
         $this->assertNull($process->getExitCodeText());
     }
@@ -507,8 +533,6 @@ class ProcessTest extends TestCase
 
     public function testMustRun()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('echo foo');
 
         $this->assertSame($process, $process->mustRun());
@@ -517,8 +541,6 @@ class ProcessTest extends TestCase
 
     public function testSuccessfulMustRunHasCorrectExitCode()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('echo foo')->mustRun();
         $this->assertEquals(0, $process->getExitCode());
     }
@@ -526,16 +548,12 @@ class ProcessTest extends TestCase
     public function testMustRunThrowsException()
     {
         $this->expectException('Symfony\Component\Process\Exception\ProcessFailedException');
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('exit 1');
         $process->mustRun();
     }
 
     public function testExitCodeText()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('');
         $r = new \ReflectionObject($process);
         $p = $r->getProperty('exitcode');
@@ -564,8 +582,6 @@ class ProcessTest extends TestCase
 
     public function testGetExitCodeIsNullOnStart()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcessForCode('usleep(100000);');
         $this->assertNull($process->getExitCode());
         $process->start();
@@ -576,8 +592,6 @@ class ProcessTest extends TestCase
 
     public function testGetExitCodeIsNullOnWhenStartingAgain()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcessForCode('usleep(100000);');
         $process->run();
         $this->assertEquals(0, $process->getExitCode());
@@ -589,8 +603,6 @@ class ProcessTest extends TestCase
 
     public function testGetExitCode()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('echo foo');
         $process->run();
         $this->assertSame(0, $process->getExitCode());
@@ -626,8 +638,6 @@ class ProcessTest extends TestCase
 
     public function testIsSuccessful()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('echo foo');
         $process->run();
         $this->assertTrue($process->isSuccessful());
@@ -635,8 +645,6 @@ class ProcessTest extends TestCase
 
     public function testIsSuccessfulOnlyAfterTerminated()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcessForCode('usleep(100000);');
         $process->start();
 
@@ -649,8 +657,6 @@ class ProcessTest extends TestCase
 
     public function testIsNotSuccessful()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcessForCode('throw new \Exception(\'BOUM\');');
         $process->run();
         $this->assertFalse($process->isSuccessful());
@@ -661,7 +667,6 @@ class ProcessTest extends TestCase
         if ('\\' === \DIRECTORY_SEPARATOR) {
             $this->markTestSkipped('Windows does not support POSIX signals');
         }
-        $this->skipIfNotEnhancedSigchild();
 
         $process = $this->getProcess('echo foo');
         $process->run();
@@ -673,7 +678,6 @@ class ProcessTest extends TestCase
         if ('\\' === \DIRECTORY_SEPARATOR) {
             $this->markTestSkipped('Windows does not support POSIX signals');
         }
-        $this->skipIfNotEnhancedSigchild();
 
         $process = $this->getProcess('echo foo');
         $process->run();
@@ -685,7 +689,6 @@ class ProcessTest extends TestCase
         if ('\\' === \DIRECTORY_SEPARATOR) {
             $this->markTestSkipped('Windows does not support POSIX signals');
         }
-        $this->skipIfNotEnhancedSigchild();
 
         $process = $this->getProcessForCode('sleep(32);');
         $process->start();
@@ -696,12 +699,15 @@ class ProcessTest extends TestCase
 
     public function testProcessThrowsExceptionWhenExternallySignaled()
     {
-        $this->expectException('Symfony\Component\Process\Exception\RuntimeException');
-        $this->expectExceptionMessage('The process has been signaled');
+        $this->expectException('Symfony\Component\Process\Exception\ProcessSignaledException');
+        $this->expectExceptionMessage('The process has been signaled with signal "9".');
         if (!\function_exists('posix_kill')) {
             $this->markTestSkipped('Function posix_kill is required.');
         }
-        $this->skipIfNotEnhancedSigchild(false);
+
+        if (self::$sigchild) {
+            $this->markTestSkipped('PHP is compiled with --enable-sigchild.');
+        }
 
         $process = $this->getProcessForCode('sleep(32.1);');
         $process->start();
@@ -904,8 +910,6 @@ class ProcessTest extends TestCase
      */
     public function testExitCodeIsAvailableAfterSignal()
     {
-        $this->skipIfNotEnhancedSigchild();
-
         $process = $this->getProcess('sleep 4');
         $process->start();
         $process->signal(SIGKILL);
@@ -982,10 +986,7 @@ class ProcessTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider provideWrongSignal
-     */
-    public function testWrongSignal($signal)
+    public function testWrongSignal()
     {
         $this->expectException('Symfony\Component\Process\Exception\RuntimeException');
         if ('\\' === \DIRECTORY_SEPARATOR) {
@@ -995,21 +996,13 @@ class ProcessTest extends TestCase
         $process = $this->getProcessForCode('sleep(38);');
         $process->start();
         try {
-            $process->signal($signal);
+            $process->signal(-4);
             $this->fail('A RuntimeException must have been thrown');
         } catch (RuntimeException $e) {
             $process->stop(0);
         }
 
         throw $e;
-    }
-
-    public function provideWrongSignal()
-    {
-        return [
-            [-4],
-            ['Céphalopodes'],
-        ];
     }
 
     public function testDisableOutputDisablesTheOutput()
@@ -1130,8 +1123,8 @@ class ProcessTest extends TestCase
     {
         return [
             //expected output / getter / code to execute
-            //[1,'getExitCode','exit(1);'],
-            //[true,'isSuccessful','exit();'],
+            // [1,'getExitCode','exit(1);'],
+            // [true,'isSuccessful','exit();'],
             ['output', 'getOutput', 'echo \'output\';'],
         ];
     }
@@ -1419,31 +1412,6 @@ class ProcessTest extends TestCase
         unset($_ENV['FOO']);
     }
 
-    /**
-     * @group legacy
-     */
-    public function testInheritEnvDisabled()
-    {
-        $process = $this->getProcessForCode('echo serialize($_SERVER);', null, ['BAR' => 'BAZ']);
-
-        putenv('FOO=BAR');
-        $_ENV['FOO'] = 'BAR';
-
-        $this->assertSame($process, $process->inheritEnvironmentVariables(false));
-        $this->assertFalse($process->areEnvironmentVariablesInherited());
-
-        $process->run();
-
-        $expected = ['BAR' => 'BAZ', 'FOO' => 'BAR'];
-        $env = array_intersect_key(unserialize($process->getOutput()), $expected);
-        unset($expected['FOO']);
-
-        $this->assertSame($expected, $env);
-
-        putenv('FOO');
-        unset($_ENV['FOO']);
-    }
-
     public function testGetCommandLine()
     {
         $p = new Process(['/usr/bin/php']);
@@ -1463,22 +1431,9 @@ class ProcessTest extends TestCase
         $this->assertSame((string) $arg, $p->getOutput());
     }
 
-    /**
-     * @dataProvider provideEscapeArgument
-     * @group legacy
-     */
-    public function testEscapeArgumentWhenInheritEnvDisabled($arg)
-    {
-        $p = new Process([self::$phpBin, '-r', 'echo $argv[1];', $arg], null, ['BAR' => 'BAZ']);
-        $p->inheritEnvironmentVariables(false);
-        $p->run();
-
-        $this->assertSame((string) $arg, $p->getOutput());
-    }
-
     public function testRawCommandLine()
     {
-        $p = new Process(sprintf('"%s" -r %s "a" "" "b"', self::$phpBin, escapeshellarg('print_r($argv);')));
+        $p = Process::fromShellCommandline(sprintf('"%s" -r %s "a" "" "b"', self::$phpBin, escapeshellarg('print_r($argv);')));
         $p->run();
 
         $expected = <<<EOTXT
@@ -1512,7 +1467,7 @@ EOTXT;
     {
         $env = ['FOO' => 'Foo', 'BAR' => 'Bar'];
         $cmd = '\\' === \DIRECTORY_SEPARATOR ? 'echo !FOO! !BAR! !BAZ!' : 'echo $FOO $BAR $BAZ';
-        $p = new Process($cmd, null, $env);
+        $p = Process::fromShellCommandline($cmd, null, $env);
         $p->run(null, ['BAR' => 'baR', 'BAZ' => 'baZ']);
 
         $this->assertSame('Foo baR baZ', rtrim($p->getOutput()));
@@ -1530,31 +1485,17 @@ EOTXT;
 
     /**
      * @param string      $commandline
-     * @param string|null $cwd
      * @param string|null $input
      * @param int         $timeout
-     *
-     * @return Process
      */
-    private function getProcess($commandline, $cwd = null, array $env = null, $input = null, $timeout = 60)
+    private function getProcess($commandline, string $cwd = null, array $env = null, $input = null, ?int $timeout = 60): Process
     {
-        $process = new Process($commandline, $cwd, $env, $input, $timeout);
-        $process->inheritEnvironmentVariables();
-
-        if (false !== $enhance = getenv('ENHANCE_SIGCHLD')) {
-            try {
-                $process->setEnhanceSigchildCompatibility(false);
-                $process->getExitCode();
-                $this->fail('ENHANCE_SIGCHLD must be used together with a sigchild-enabled PHP.');
-            } catch (RuntimeException $e) {
-                $this->assertSame('This PHP has been compiled with --enable-sigchild. You must use setEnhanceSigchildCompatibility() to use this method.', $e->getMessage());
-                if ($enhance) {
-                    $process->setEnhanceSigchildCompatibility(true);
-                } else {
-                    self::$notEnhancedSigchild = true;
-                }
-            }
+        if (\is_string($commandline)) {
+            $process = Process::fromShellCommandline($commandline, $cwd, $env, $input, $timeout);
+        } else {
+            $process = new Process($commandline, $cwd, $env, $input, $timeout);
         }
+        $process->inheritEnvironmentVariables();
 
         if (self::$process) {
             self::$process->stop(0);
@@ -1563,24 +1504,9 @@ EOTXT;
         return self::$process = $process;
     }
 
-    /**
-     * @return Process
-     */
-    private function getProcessForCode($code, $cwd = null, array $env = null, $input = null, $timeout = 60)
+    private function getProcessForCode(string $code, string $cwd = null, array $env = null, $input = null, ?int $timeout = 60): Process
     {
         return $this->getProcess([self::$phpBin, '-r', $code], $cwd, $env, $input, $timeout);
-    }
-
-    private function skipIfNotEnhancedSigchild($expectException = true)
-    {
-        if (self::$sigchild) {
-            if (!$expectException) {
-                $this->markTestSkipped('PHP is compiled with --enable-sigchild.');
-            } elseif (self::$notEnhancedSigchild) {
-                $this->expectException('Symfony\Component\Process\Exception\RuntimeException');
-                $this->expectExceptionMessage('This PHP has been compiled with --enable-sigchild.');
-            }
-        }
     }
 }
 

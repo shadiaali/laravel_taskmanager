@@ -22,7 +22,7 @@
           </div>
         @endif
           <form action="/tasks" method="POST">
-            {{ csrf_field() }}
+            @csrf
 
             <div class="row">
               <div class="col-md-8">
@@ -31,7 +31,16 @@
                   <input type="text" name="name" id="task-name" class="form-control" placeholder="Task">
                 </div>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-2">
+                <div class="form-group">
+                  <select name="type" id="type" class="form-control">
+                    @foreach(App\TaskType::all() as $type)
+                      <option value="{{ $type->id }}">{{ $type->name }}</option>
+                    @endforeach
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-2">
                 <div class="form-group">
                   <button type="submit" class="btn btn-primary btn-block">
                     <span class="fa fa-plus"></span>  Add Task
@@ -42,38 +51,26 @@
           </form>
         </div>
       </div>
-      @if(App\Task::all()->isNotEmpty())
-      <div class="card mt-4">
-        <div class="card-header">
-          <table class="table table-striped task-table">
-            <thead>
-              <th>Task</th>
-              <th></th>
-            </thead>
-          </table>
-          <tbody>
-            @foreach(App\Task::all() as $task)
-            <tr>
-              <td>
-                {{ $task->name }}
-              </td>
-              <td class="text-right">
-                <form action="/tasks/{{ $task->id }}" method="POST">
-                  {!! method_field('delete') !!}
-                  {{ csrf_field() }}
-                  <button type="submit" class="btn btn-danger btn-sm">
-                    Delete
-                  </button>
-                </form>
-              </td>
-              </td>
-            <td></td>
-          </tr>
-          @endforeach
-          </tbody>
-        </div>
-      </div>
-      @endif
     </div>
+  </div>
+  <div>
+    @if(App\Task::all()->isNotEmpty())
+      <h2>Tasks:</h2>
+      @foreach(App\Task::all() as $task)
+        <p>
+          {{ $task->name }}
+          <span style="color: {{ $task->taskType->color }}">
+            {{ $task->taskType->name }}
+          </span>
+        </p>
+        <form action="/tasks/{{ $task->id }}" method="POST">
+        @method('DELETE')
+        @csrf
+          <button type="submit">
+            Delete Task
+          </button>
+        </form>
+      @endforeach
+    @endif
   </div>
 @endsection

@@ -11,35 +11,12 @@
 |
 */
 
-use Illuminate\Http\Request;
-use App\Task;
-
 Route::get('/', function () {
-    return view('tasks');
+    return view('welcome');
 });
 
-Route::post('tasks', function (Request $request) {
-    $validator = Validator::make($request->all(), [
-'name' => 'required|max:255'
-    ]);
+Route::get('start', 'TasksController@index');
 
-    if ($validator->fails()) {
-        return redirect('/')
-        ->withInput()
-        ->withErrors($validator);
-    }
+Route::post('/tasks', 'TasksController@store');
 
-    //dd($request->input('name'));
-
-    $task = Task::create([
-        'name' => $request->name
-    ]);
-
-    return redirect('/');
-});
-
-Route::delete('tasks/{task}', function (Task $task){
-    $task->delete();
-
-    return redirect('/');
-});
+Route::delete('tasks/{task}', 'TasksController@destroy');
